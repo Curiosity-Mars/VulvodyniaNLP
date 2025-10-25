@@ -1,0 +1,155 @@
+"""
+stage13_symptom_anatomy.py
+--------------------------
+Symptom–Anatomy Co-occurrence Analysis for the Vulvodynia Reddit Corpus.
+
+This script:
+1. Loads and cleans the Reddit-based vulvodynia text corpus
+2. Builds a co-occurrence network (window = 5 words)
+3. Extracts symptom–anatomy edge frequencies
+4. Generates two visualization formats:
+   (a) Bipartite network graph (Figure 3a)
+   (b) Heatmap matrix (Figure 3b)
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage13-symptom-anatomy-cooccurrence
+"""
+
+# --- 1. Mount Google Drive & import libraries ---
+from google.colab import drive
+drive.mount('/content/drive')
+
+!pip install python-docx nltk pandas tqdm networkx matplotlib seaborn
+
+import re
+import pandas as pd
+from tqdm import tqdm
+from docx import Document
+import nltk
+nltk.download("punkt")
+nltk.download("punkt_tab")
+nltk.download("stopwords")
+
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import networkx as nx
+from collections import Counter
+import matplotlib.pyplot as plt
+from itertools import product
+import seaborn as sns
+
+# --- 2. Load Reddit text ---
+file_path = "/content/drive/MyDrive/rVulvodynia 251011A.docx"
+doc = Document(file_path)
+raw_text = "\n".join(p.text for p in doc.paragraphs)
+print(f"Characters: {len(raw_text):,}")
+
+# --- 3. Text preprocessing ---
+ui_words = [
+    "back","reply","award","share","create","sort","best",
+    "follow","track","comment","post","vote","report","save",
+    "give","award","crosspost","community","subreddit","discussion",
+    "moderator","edit","deleted","removed","like","login","signup",
+    "•","–","—"
+]
+text = re.sub(r"http\S+|www\S+", "", raw_text)
+text = re.sub(r"[^A-Za-z\s']", " ", text)
+text = re.sub(r"\s+", " ", text).lower()
+
+stop_words = set(stopwords.words("english"))
+tokens = [w for w in word_tokenize(text) if len(w) > 2 and w not in stop_words]
+tokens = [w for w in tokens if w not in ui_words]
+print(f"✅ Clean tokens: {len(tokens):,}")
+
+# --- 4. Build co-occurrence network ---
+window = 5
+edges = Counter()
+for i in tqdm(range(len(tokens))):
+    word = tokens[i]
+    for j in range(i + 1, min(i + window + 1, len(tokens))):
+        w2 = tokens[j]
+        if word != w2:
+            pair = tuple(sorted([word, w2]))
+            edges[pair] += 1
+
+# Build NetworkX graph
+G = nx.Graph()
+for (w1, w2), weight in edges.items():
+    if weight >= 3:
+        G.add_edge(w1, w2, weight=weight)
+print(f"✅ Network built — Nodes: {G.number_of_nodes()}, Edges: {G.number_of_edges()}")
+
+# --- 5. Symptom × Anatomy co-occurrence extraction ---
+symptom_words = [
+    "pain", "burning", "itching", "pressure", "tightness",
+    "raw", "numb", "cramp", "tingling", "soreness"
+]
+anatomy_words = [
+    "vagina", "vaginal", "vulva", "vulvar", "urethra", "bladder",
+    "pelvic", "floor", "skin", "clitoris", "perineum"
+]
+
+edges_symptom_anatomy = []
+for s, a in product(symptom_words, anatomy_words):
+    if G.has_edge(s, a):
+        w = G[s][a].get("weight", 0)
+        edges_symptom_anatomy.append((s, a, w))
+
+df_symp_anat = pd.DataFrame(
+    edges_symptom_anatomy,
+    columns=["symptom", "anatomy", "cooccurrence"]
+).sort_values("cooccurrence", ascending=False)
+
+print("=== Symptom × Anatomy co-occurrence ===")
+print(df_symp_anat)
+
+# Save CSV
+path_sa = "/content/drive/MyDrive/Vulvodynia_Symptom_Anatomy.csv"
+df_symp_anat.to_csv(path_sa, index=False)
+print(f"\n✅ Exported: {path_sa}")
+
+# --- 6. Visualization: Bipartite graph (Figure 3a) ---
+B = nx.Graph()
+for s, a, w in edges_symptom_anatomy:
+    if w >= 3:
+        B.add_node(s, bipartite=0, color="red")
+        B.add_node(a, bipartite=1, color="blue")
+        B.add_edge(s, a, weight=w)
+
+pos = {}
+pos.update((n, (0, i)) for i, n in enumerate(symptom_words))
+pos.update((n, (1, i)) for i, n in enumerate(anatomy_words))
+
+plt.figure(figsize=(10, 8))
+colors = ["red" if n in symptom_words else "blue" for n in B.nodes()]
+sizes = [300 + 50 * B.degree(n) for n in B.nodes()]
+nx.draw(B, pos, with_labels=True, node_color=colors, node_size=sizes,
+        width=[B[u][v]["weight"]*0.1 for u,v in B.edges()],
+        font_size=10, edge_color="gray", alpha=0.8)
+
+plt.title("Symptom–Anatomy Co-occurrence Network (Vulvodynia Reddit Corpus)")
+plt.axis("off")
+plt.tight_layout()
+plt.savefig("/content/drive/MyDrive/Vulvodynia_Fig3_Symptom_Anatomy.png", dpi=300)
+plt.show()
+
+# --- 7. Visualization: Heatmap (Figure 3b) ---
+pivot = df_symp_anat.pivot(index="symptom", columns="anatomy", values="cooccurrence").fillna(0)
+symptom_order = symptom_words
+anatomy_order = anatomy_words
+pivot = pivot.reindex(index=symptom_order, columns=anatomy_order)
+
+plt.figure(figsize=(10, 6))
+sns.heatmap(pivot, cmap="YlOrRd", linewidths=0.5, annot=True, fmt=".0f",
+            cbar_kws={'label': 'Co-occurrence frequency'})
+
+plt.title("Symptom–Anatomy Co-occurrence Heatmap (Vulvodynia Reddit Corpus)", fontsize=14, pad=15)
+plt.xlabel("Anatomical terms", fontsize=12)
+plt.ylabel("Symptom terms", fontsize=12)
+plt.tight_layout()
+
+outpath = "/content/drive/MyDrive/Vulvodynia_Fig3_Symptom_Anatomy_heatmap.png"
+plt.savefig(outpath, dpi=300)
+plt.show()
+
+print(f"✅ Exported: {outpath}")
