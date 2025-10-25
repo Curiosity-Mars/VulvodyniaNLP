@@ -1,0 +1,38 @@
+"""
+stage6_community.py
+-------------------
+Louvain community detection and top-term extraction for the Vulvodynia Linguistic Network.
+
+This script:
+1. Applies Louvain modularity optimization to the co-occurrence network
+2. Assigns community IDs to each word node
+3. Merges degree-centrality information
+4. Lists the top 10 most central terms per community
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage6-community-detection
+"""
+
+import networkx as nx
+import community as community_louvain
+import pandas as pd
+
+# --- Louvain community detection ---
+partition = community_louvain.best_partition(G, resolution=1.0)
+nx.set_node_attributes(G, partition, "community")
+
+# Create DataFrame of nodes and community assignments
+comm_df = pd.DataFrame(list(partition.items()), columns=["word", "community"])
+comm_df["degree"] = comm_df["word"].map(deg_centrality)
+
+# --- Extract top words by community ---
+top_by_comm = (
+    comm_df.sort_values(["community", "degree"], ascending=[True, False])
+    .groupby("community")
+    .head(10)
+)
+
+print("=== Top words by Louvain community ===")
+for cid, grp in top_by_comm.groupby("community"):
+    print(f"\nCommunity {cid} (n={len(grp)}):")
+    print(", ".join(grp["word"].tolist()))
