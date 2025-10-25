@@ -1,0 +1,61 @@
+"""
+stage4_centrality.py
+--------------------
+Centrality-based lexical analysis for the Vulvodynia Linguistic Network.
+
+This script:
+1. Uses the degree-centrality output from Stage 3
+2. Classifies words as medical vs. general vocabulary using regex patterns
+3. Extracts and exports the top 30 terms from each category
+4. Automatically downloads the CSV files in Google Colab
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage4-centrality-analysis
+"""
+
+import pandas as pd
+import re
+from google.colab import files  # used for automatic CSV download in Colab
+
+# --- Define medical-term pattern ---
+medical_focus = re.compile(
+    r"(pain|burn|pelvic|nerve|urina|vagin|sex|intercourse|itch|spasm|tight|"
+    r"floor|bladder|ureth|discomfort|numb|dry|pressure|tear|scar|"
+    r"sitting|touch|throb|cramp|infection|skin|raw|cut|bleed|muscle|vulva)"
+)
+
+# Convert centrality dictionary to DataFrame
+deg_df = pd.DataFrame(deg_centrality.items(), columns=["word", "degree_centrality"])
+
+# Classify words by whether they match the medical pattern
+deg_df["is_medical"] = deg_df["word"].apply(lambda w: bool(medical_focus.search(w)))
+
+# Select top 30 words from each category
+top_medical = (
+    deg_df[deg_df["is_medical"]]
+    .sort_values("degree_centrality", ascending=False)
+    .head(30)
+)
+top_general = (
+    deg_df[~deg_df["is_medical"]]
+    .sort_values("degree_centrality", ascending=False)
+    .head(30)
+)
+
+# Display results
+print("=== Top 30 MEDICAL terms (symptom / organ / sensation) ===")
+print(top_medical[["word", "degree_centrality"]].to_string(index=False))
+print("\n=== Top 30 GENERAL terms (emotion / cognition / interaction) ===")
+print(top_general[["word", "degree_centrality"]].to_string(index=False))
+
+# --- Export results and trigger download ---
+file_med = "Vulvodynia_top30_medical.csv"
+file_gen = "Vulvodynia_top30_general.csv"
+
+top_medical.to_csv(file_med, index=False)
+top_general.to_csv(file_gen, index=False)
+
+files.download(file_med)
+files.download(file_gen)
+
+print("\n✅ CSV files exported and auto-downloaded.")
