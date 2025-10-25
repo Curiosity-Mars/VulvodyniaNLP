@@ -1,0 +1,31 @@
+"""
+stage3_structure.py
+-------------------
+Network structural summary for the Vulvodynia Linguistic Network Analysis.
+
+This script:
+1. Computes fundamental graph metrics for the co-occurrence network
+2. Estimates average degree, clustering coefficient, and density
+3. Approximates the diameter of the largest connected component
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage3-network-structure
+"""
+
+import numpy as np
+import networkx as nx
+
+# Assumes the network object G has been loaded or created in Stage 2
+# Example: G = nx.read_gpickle("outputs/vulvodynia_graph.gpickle")
+
+print("=== Network Structural Summary ===")
+print(f"Nodes: {G.number_of_nodes():,}")
+print(f"Edges: {G.number_of_edges():,}")
+print(f"Density: {nx.density(G):.6f}")
+print(f"Average degree: {np.mean([d for n, d in G.degree()]):.3f}")
+print(f"Average clustering coefficient: {nx.average_clustering(G):.3f}")
+
+# For large networks, compute approximate diameter only
+giant = G.subgraph(max(nx.connected_components(G), key=len))
+approx_diameter = nx.approximation.diameter(giant)
+print(f"Approximate diameter: {approx_diameter}")
