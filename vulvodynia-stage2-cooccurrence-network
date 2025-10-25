@@ -1,0 +1,78 @@
+"""
+stage2_cooccurrence.py
+----------------------
+Co-occurrence network construction and visualization for the Vulvodynia Linguistic Network Analysis.
+
+This script:
+1. Loads cleaned tokens from Stage 1
+2. Builds a word co-occurrence network within a ±5-word window
+3. Applies a frequency threshold (≥3 co-occurrences)
+4. Detects communities using the Louvain algorithm
+5. Computes centrality measures and visualizes the network
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage2-cooccurrence-network
+"""
+
+# --- Stage 2: Co-occurrence Network Construction and Visualization (NaN-safe version) ---
+!pip install networkx matplotlib python-louvain tqdm
+
+import pandas as pd
+import networkx as nx
+from collections import Counter
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import community as community_louvain
+
+# --- Load data ---
+df = pd.read_csv("/content/drive/MyDrive/Vulvodynia_tokens_stage1_clean.csv")
+
+# Remove missing or non-string entries
+tokens = [str(t).lower() for t in df["token"].tolist() if isinstance(t, str) or not pd.isna(t)]
+
+# --- Build co-occurrence relationships (±5-word window) ---
+window = 5
+edges = Counter()
+
+for i in tqdm(range(len(tokens))):
+    word = tokens[i]
+    for j in range(i + 1, min(i + window + 1, len(tokens))):
+        w2 = tokens[j]
+        # Skip invalid types
+        if not isinstance(word, str) or not isinstance(w2, str):
+            continue
+        # Skip self-pairs
+        if word != w2:
+            pair = tuple(sorted([word, w2]))  # ensure consistent ordering
+            edges[pair] += 1
+
+# --- Create NetworkX graph ---
+G = nx.Graph()
+for (w1, w2), weight in edges.items():
+    if weight >= 3:  # include only edges with ≥3 co-occurrences
+        G.add_edge(w1, w2, weight=weight)
+
+print(f"✅ Nodes: {G.number_of_nodes()}, Edges: {G.number_of_edges()}")
+
+# --- Louvain community detection ---
+partition = community_louvain.best_partition(G, resolution=1.0)
+nx.set_node_attributes(G, partition, "community")
+
+# --- Centrality computation ---
+deg = nx.degree_centrality(G)
+nx.set_node_attributes(G, deg, "degree_centrality")
+
+# --- Visualization ---
+plt.figure(figsize=(12, 10))
+pos = nx.spring_layout(G, k=0.15, iterations=50, seed=42)
+
+colors = [partition[n] for n in G.nodes()]
+sizes = [2000 * deg[n] for n in G.nodes()]
+
+nx.draw_networkx_nodes(G, pos, node_size=sizes, node_color=colors, cmap=plt.cm.tab20)
+nx.draw_networkx_edges(G, pos, alpha=0.2)
+nx.draw_networkx_labels(G, pos, {n: n for n in list(deg.keys())[:50]}, font_size=8)
+
+plt.title("Vulvodynia Reddit Lexical Network (2020–2025)")
+plt.axis("off")
+plt.show()
