@@ -1,0 +1,76 @@
+"""
+stage8_backbone_visualization.py
+--------------------------------
+Readable Disparity Backbone visualization for the Vulvodynia Linguistic Network Analysis.
+
+This script:
+1. Performs Louvain community detection on the extracted backbone
+2. Uses a wide spring layout for clear community separation
+3. Highlights the top 25 most central nodes with label collision avoidance
+4. Exports a publication-quality PNG figure (Figure 2)
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage8-backbone-visualization
+"""
+
+!pip install adjustText
+
+import matplotlib.pyplot as plt
+import networkx as nx
+import matplotlib.patheffects as patheffects
+from adjustText import adjust_text
+from google.colab import files
+import community as community_louvain
+
+# --- Louvain community detection on the backbone ---
+part_backbone = community_louvain.best_partition(sub_backbone, resolution=1.0)
+
+# --- Spring layout (spread clusters for better readability) ---
+pos_b = nx.spring_layout(sub_backbone, k=0.45, iterations=120, seed=42)
+
+# --- Select top 25 nodes by degree centrality ---
+top_labels = [
+    w for w, _ in sorted(
+        ((n, deg_centrality.get(n, 0)) for n in sub_backbone.nodes()),
+        key=lambda x: -x[1]
+    )[:25]
+]
+
+# --- Create figure ---
+plt.figure(figsize=(14, 10))
+
+# Draw nodes with semi-transparency, colored by community
+nx.draw_networkx_nodes(
+    sub_backbone, pos_b,
+    node_size=[deg_centrality.get(n, 0) * 9000 for n in sub_backbone.nodes()],
+    node_color=[part_backbone[n] for n in sub_backbone.nodes()],
+    cmap=plt.cm.tab10, alpha=0.75
+)
+
+# Draw edges with light transparency
+nx.draw_networkx_edges(sub_backbone, pos_b, width=0.4, alpha=0.25)
+
+# --- Add labels for top 25 nodes ---
+texts = []
+for n in top_labels:
+    x, y = pos_b[n]
+    txt = plt.text(
+        x, y, n,
+        fontsize=12, fontweight='bold', color='black',
+        path_effects=[patheffects.withStroke(linewidth=3, foreground='white')]
+    )
+    texts.append(txt)
+
+# Adjust label positions to avoid overlap
+adjust_text(texts, arrowprops=dict(arrowstyle="-", color='gray', lw=0.5))
+
+# --- Finalize figure ---
+plt.title("Vulvodynia Reddit Lexical Network — Disparity Backbone (α=0.05)", fontsize=16)
+plt.axis("off")
+plt.tight_layout()
+
+# Save and download
+out_path = "/content/Vulvodynia_Backbone_Readable.png"
+plt.savefig(out_path, dpi=300, bbox_inches="tight")
+plt.show()
+files.download(out_path)
