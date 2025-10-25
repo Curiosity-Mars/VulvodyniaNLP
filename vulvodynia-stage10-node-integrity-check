@@ -1,0 +1,46 @@
+"""
+stage10_node_check.py
+---------------------
+Node type verification and integrity diagnostics for the Vulvodynia Linguistic Network.
+
+This script:
+1. Inspects node contents in the core network (coreG)
+2. Counts and displays node type distribution
+3. Separates integer vs. string nodes for data validation
+4. Prints representative examples to ensure all nodes are lexical tokens
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage10-node-integrity-check
+"""
+
+from collections import Counter
+
+print("=== Node Content Inspection ===\n")
+
+# --- Display the first 20 nodes ---
+print("First 20 nodes:")
+sample_nodes = list(coreG.nodes())[:20]
+for i, node in enumerate(sample_nodes, start=1):
+    print(f"{i}. {node} (type: {type(node).__name__})")
+
+print("\n" + "=" * 50 + "\n")
+
+# --- Summarize node type distribution ---
+node_types = Counter([type(n).__name__ for n in coreG.nodes()])
+print("Node type distribution:")
+for node_type, count in node_types.items():
+    print(f"  {node_type}: {count}")
+
+print("\n" + "=" * 50 + "\n")
+
+# --- Separate integer and string nodes ---
+int_nodes = [n for n in coreG.nodes() if isinstance(n, int)]
+str_nodes = [n for n in coreG.nodes() if isinstance(n, str)]
+
+print(f"Integer nodes: {len(int_nodes)}")
+if int_nodes[:5]:
+    print(f"  Examples: {int_nodes[:5]}")
+
+print(f"\nString nodes: {len(str_nodes)}")
+if str_nodes[:10]:
+    print(f"  Examples: {str_nodes[:10]}")
