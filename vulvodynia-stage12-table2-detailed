@@ -1,0 +1,42 @@
+"""
+stage12_table2_detailed.py
+--------------------------
+Generates Table 2-Detailed for the Vulvodynia Linguistic Network Analysis.
+
+This script:
+1. Merges top-ranked medical and general lexical terms
+2. Adds Louvain community assignments
+3. Sorts by category and degree centrality
+4. Exports a publication-ready CSV table (Table 2-detailed)
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage12-table2-detailed
+"""
+
+import pandas as pd
+
+# --- 1. Prepare copies ---
+top_med_core = top_med_core.copy()
+top_gen_core = top_gen_core.copy()
+
+top_med_core["type"] = "medical"
+top_gen_core["type"] = "general"
+
+# --- 2. Map Louvain community numbers ---
+top_med_core["community"] = top_med_core["word"].map(partition_core)
+top_gen_core["community"] = top_gen_core["word"].map(partition_core)
+
+# --- 3. Concatenate and sort ---
+table2_detailed = pd.concat([top_med_core, top_gen_core], ignore_index=True)
+table2_detailed = (
+    table2_detailed.sort_values(["type", "degree_centrality"], ascending=[True, False])
+    [["type", "word", "degree_centrality", "community"]]
+)
+
+# --- 4. Export CSV ---
+path_detailed = "/content/drive/MyDrive/Vulvodynia_Table2_detailed.csv"
+table2_detailed.to_csv(path_detailed, index=False)
+
+print("=== Table 2-detailed ===")
+print(table2_detailed.to_string(index=False))
+print(f"\n✅ Exported: {path_detailed}")
