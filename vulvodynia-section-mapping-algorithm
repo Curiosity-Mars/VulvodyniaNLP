@@ -1,0 +1,67 @@
+"""
+paper_code_alignment.py
+-----------------------
+Aligns manuscript sections with GitHub code stages for the
+Vulvodynia Linguistic Network Analysis project.
+
+Author: Okui & Horie (2025)
+"""
+
+from docx import Document
+import pandas as pd
+import re
+from pathlib import Path
+
+# === 1. Load manuscript ===
+doc_path = Path("/content/drive/MyDrive/Vuvodynia NLP 20251024A (1).docx")
+doc = Document(doc_path)
+
+# === 2. Extract headings, figures, and tables ===
+sections = []
+for p in doc.paragraphs:
+    text = p.text.strip()
+    if re.match(r"^(Introduction|Methods|Results|Discussion|Data availability|Code availability)", text):
+        sections.append(("Section", text))
+    elif re.match(r"^Stage\s*\d+", text):
+        sections.append(("Stage", text))
+    elif re.match(r"^Figure\s*\d+", text):
+        sections.append(("Figure", text))
+    elif re.match(r"^Table\s*\d+", text):
+        sections.append(("Table", text))
+
+paper_df = pd.DataFrame(sections, columns=["Type", "Label"])
+
+# === 3. Define mapping between manuscript and GitHub stages ===
+code_map = {
+    "Stage 1": "vulvodynia-stage1-text-cleaning",
+    "Stage 2": "vulvodynia-stage2-cooccurrence-network",
+    "Stage 3": "vulvodynia-stage3-network-structure",
+    "Stage 4": "vulvodynia-stage4-centrality-analysis",
+    "Stage 5": "vulvodynia-stage5-medical-centrality-filtering",
+    "Stage 6": "vulvodynia-stage6-community-detection",
+    "Stage 7": "vulvodynia-stage7-network-visualization",
+    "Stage 8": "vulvodynia-stage8-backbone-visualization",
+    "Stage 9": "vulvodynia-stage9-core400-visualization",
+    "Stage 10": "vulvodynia-stage10-node-integrity-verification",
+    "Stage 11": "vulvodynia-stage11-core400-final-visualization",
+    "Stage 12": "vulvodynia-stage12-table2-detailed",
+    "Stage 13": "vulvodynia-stage13-symptom-anatomy-cooccurrence",
+}
+
+# === 4. Merge manuscript structure with code map ===
+paper_df["Code Repository"] = paper_df["Label"].map(code_map)
+
+# Fill figure/table links manually for clarity
+paper_df.loc[paper_df["Label"].str.contains("Figure 1"), "Code Repository"] = "Stage 7"
+paper_df.loc[paper_df["Label"].str.contains("Figure 2"), "Code Repository"] = "Stage 8"
+paper_df.loc[paper_df["Label"].str.contains("Figure 3"), "Code Repository"] = "Stage 13"
+paper_df.loc[paper_df["Label"].str.contains("Table 1"), "Code Repository"] = "Stage 4 / 5"
+paper_df.loc[paper_df["Label"].str.contains("Table 2"), "Code Repository"] = "Stage 6 / 12"
+
+# === 5. Export correspondence table ===
+out_path = Path("/content/Vulvodynia_Paper_Code_Map.csv")
+paper_df.to_csv(out_path, index=False)
+print(f"✅ Alignment table exported → {out_path}")
+
+# === 6. Display preview ===
+print(paper_df.head(15))
