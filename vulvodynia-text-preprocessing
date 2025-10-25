@@ -1,0 +1,22 @@
+# Vulvodynia Text Preprocessing
+
+This repository contains the preprocessing pipeline used in the study:
+
+> **Okui, M. & Horie, S. (2025).**  
+> *Semantic structure of patient narratives in vulvodynia: a linguistic network analysis.*
+
+---
+
+## Overview
+`preprocessing.py` prepares the text corpus for linguistic and network analyses.  
+It tokenizes, cleans, and normalizes patient-generated text from Reddit posts mentioning “vulvodynia.”
+
+**Steps included:**
+1. Load raw text (`data/raw/reddit_vulvodynia.txt`)
+2. Tokenize words and convert to lowercase  
+3. Remove non-alphabetic characters and English stopwords  
+4. Save processed tokens to `data/processed/tokens.csv`
+
+---
+
+## Repository structure
