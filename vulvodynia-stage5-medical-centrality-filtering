@@ -1,0 +1,58 @@
+"""
+stage5_medical_filter.py
+------------------------
+Medical-focused centrality filtering for the Vulvodynia Linguistic Network.
+
+This script:
+1. Loads degree-centrality values computed from Stage 3 or Stage 4
+2. Removes common English words, pronouns, and auxiliary verbs
+3. Prioritizes medical / symptom-related vocabulary via regex pattern
+4. Ranks and exports the top 30 vulvodynia-related terms
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage5-medical-centrality-filtering
+"""
+
+import pandas as pd
+import re
+import networkx as nx
+
+# Assume that the network object G is already constructed (from Stage 2)
+# Example: G = nx.read_gpickle("outputs/vulvodynia_graph.gpickle")
+
+# --- Exclude everyday English words, conjunctions, and pronouns ---
+general_words = set([
+    "the","and","for","you","but","was","are","this","that","have","with","not",
+    "your","had","has","can","would","could","should","also","like","one","two",
+    "really","know","ago","time","day","back","even","when","then","they","she",
+    "him","her","because","about","been","some","more","think","still","see",
+    "make","get","much","into","doing","from","will","did","just","don","does",
+    "got","say","very","many","those","there","their","mine","our","we","what",
+    "who","how","any","lot","though","may","yes","maybe","thank","please"
+])
+
+# --- Define medical / symptom-related keywords ---
+medical_focus = re.compile(
+    r"(pain|burn|pelvic|nerve|urina|vagin|sex|intercourse|itch|spasm|tight|"
+    r"floor|bladder|ureth|discomfort|numb|dry|pressure|tear|scar|"
+    r"sitting|touch|throb|cramp|infection|skin|raw|cut|bleed|muscle|vulva)"
+)
+
+# --- Load degree centrality ---
+deg_centrality = nx.degree_centrality(G)
+deg_df = pd.DataFrame(deg_centrality.items(), columns=["word", "degree_centrality"])
+
+# --- Identify medical terms and remove general words ---
+deg_df["is_medical"] = deg_df["word"].apply(lambda w: bool(medical_focus.search(w)))
+filtered = deg_df[~deg_df["word"].isin(general_words)]
+
+# --- Rank: prioritize medical terms, then by degree centrality ---
+filtered = filtered.sort_values(["is_medical", "degree_centrality"], ascending=[False, False])
+
+print("=== Top 30 Vulvodynia-related / symptom-associated terms ===")
+print(filtered.head(30))
+
+# --- Save results ---
+output_path = "/content/drive/MyDrive/Vulvodynia_degree_medical_focus.csv"
+filtered.to_csv(output_path, index=False)
+print(f"✅ Exported → {output_path}")
