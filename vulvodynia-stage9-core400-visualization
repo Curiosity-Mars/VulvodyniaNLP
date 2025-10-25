@@ -1,0 +1,136 @@
+"""
+stage9_core400_visualization.py
+--------------------------------
+Core-400 lexical network visualization for the Vulvodynia Linguistic Network Analysis.
+
+This script:
+1. Extracts the top 400 most central nodes
+2. Performs Louvain community detection within the core network
+3. Applies a log-scaled Kamada–Kawai layout with expanded spacing
+4. Highlights key medical and high-degree terms (yellow nodes)
+5. Produces a publication-quality figure (Figure 3)
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage9-core400-visualization
+"""
+
+# --- Required Libraries ---
+import numpy as np
+import matplotlib.pyplot as plt
+import networkx as nx
+import community as community_louvain
+from adjustText import adjust_text
+import matplotlib.patheffects as pe
+from google.colab import files
+
+# === 1. Extract top 400 nodes (by degree centrality) ===
+deg_sorted = sorted(deg_centrality.items(), key=lambda x: -x[1])
+top400_nodes = [w for w, _ in deg_sorted[:400]]
+coreG = G.subgraph(top400_nodes).copy()
+
+# === 2. Louvain community detection ===
+partition = community_louvain.best_partition(coreG, resolution=1.0)
+
+# === 3. Log-normalized edge weights ===
+for u, v, d in coreG.edges(data=True):
+    d["w_log"] = np.log1p(d["weight"])
+
+# === 4. Kamada–Kawai layout with stronger dispersion ===
+pos = nx.kamada_kawai_layout(coreG, weight="w_log")
+rng = np.random.default_rng(42)
+for n in pos:
+    pos[n][0] += rng.uniform(-0.3, 0.3)
+    pos[n][1] += rng.uniform(-0.3, 0.3)
+    pos[n][0] *= 1.8
+    pos[n][1] *= 2.0
+
+# === 5. Select key labels (top 50 + medical keywords) ===
+top50_by_degree = [n for n, _ in deg_sorted[:50] if n in coreG.nodes()]
+medical_words = [
+    "pain", "pelvic", "sex", "floor", "burning", "vulva", "nerve",
+    "vaginal", "infection", "skin", "muscles", "vagina", "infections",
+    "vulvar", "vaginismus", "painful", "nerves", "itching", "doctor",
+    "treatment", "therapy", "symptoms", "diagnosed"
+]
+important_words = [w for w in medical_words if w in coreG.nodes()]
+label_nodes = list(set(top50_by_degree[:30]) | set(important_words))
+
+# === 6. Plot network ===
+plt.figure(figsize=(20, 16))
+
+# Edges
+nx.draw_networkx_edges(coreG, pos, alpha=0.2, width=0.2, edge_color="gray")
+
+# All nodes (community-colored background)
+node_colors = [partition[n] for n in coreG.nodes()]
+node_sizes = [deg_centrality.get(n, 0) * 6000 for n in coreG.nodes()]
+nx.draw_networkx_nodes(
+    coreG, pos,
+    node_color=node_colors,
+    cmap=plt.cm.tab20,
+    node_size=node_sizes,
+    alpha=0.7,
+    linewidths=0.5,
+    edgecolors="white"
+)
+
+# Highlight key labeled nodes
+nx.draw_networkx_nodes(
+    coreG, pos,
+    nodelist=label_nodes,
+    node_color="yellow",
+    node_size=[deg_centrality.get(n, 0) * 8000 for n in label_nodes],
+    alpha=0.95,
+    linewidths=1.5,
+    edgecolors="darkred"
+)
+
+# === 7. Label placement with collision avoidance ===
+texts = []
+for n in label_nodes:
+    if n in pos:
+        x, y = pos[n]
+        t = plt.text(
+            x, y, n,
+            fontsize=10,
+            fontweight="bold",
+            color="darkblue",
+            ha="center", va="center",
+            path_effects=[pe.withStroke(linewidth=2.5, foreground="white")]
+        )
+        texts.append(t)
+
+adjust_text(
+    texts,
+    expand_points=(1.5, 1.5),
+    expand_text=(1.4, 1.4),
+    force_points=(0.5, 0.5),
+    force_text=(0.5, 0.5),
+    arrowprops=dict(arrowstyle="-", color="gray", lw=0.5, alpha=0.6)
+)
+
+# === 8. Titles and annotations ===
+plt.title(
+    "Vulvodynia Reddit Core Network (Top 400 Nodes)\n"
+    "Colored by Louvain Community | Yellow nodes = Key Terms",
+    fontsize=18, fontweight="bold"
+)
+plt.text(
+    0.02, 0.02,
+    f"Total nodes: {len(coreG.nodes())} | Labeled: {len(label_nodes)}",
+    fontsize=11, ha="left", va="bottom", transform=plt.gca().transAxes,
+    bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.8)
+)
+
+plt.axis("off")
+plt.tight_layout()
+
+# === 9. Save and download ===
+outpath = "/content/Vulvodynia_Core400_Balanced.png"
+plt.savefig(outpath, dpi=300, bbox_inches="tight")
+plt.show()
+files.download(outpath)
+
+print(f"✓ Saved graph: {outpath}")
+print(f"✓ Number of labeled nodes: {len(label_nodes)}")
+print(f"✓ Top labeled words: {', '.join(label_nodes[:10])}...")
