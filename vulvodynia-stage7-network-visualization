@@ -1,0 +1,49 @@
+"""
+stage7_visualization.py
+------------------------
+Visualization of the co-occurrence network for the Vulvodynia Linguistic Analysis.
+
+This script:
+1. Generates a high-resolution network figure (Figure 1)
+2. Scales node size by degree centrality
+3. Colors nodes by Louvain community assignment
+4. Labels the 30 most central terms
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage7-network-visualization
+"""
+
+import matplotlib.pyplot as plt
+import networkx as nx
+
+# --- Node attributes (size scaled by degree centrality) ---
+node_sizes = [v * 8000 for v in deg_centrality.values()]
+communities = [partition[node] for node in G.nodes()]
+
+# --- Layout (Fruchterman–Reingold spring layout) ---
+pos = nx.spring_layout(G, k=0.25, iterations=50, seed=42)
+
+plt.figure(figsize=(18, 14))
+nx.draw_networkx_nodes(
+    G,
+    pos,
+    node_size=node_sizes,
+    node_color=communities,
+    cmap=plt.cm.tab10,
+    alpha=0.85,
+)
+nx.draw_networkx_edges(G, pos, width=0.2, alpha=0.3)
+nx.draw_networkx_labels(
+    G,
+    pos,
+    labels={n: n for n, d in sorted(deg_centrality.items(), key=lambda x: -x[1])[:30]},
+    font_size=12,
+    font_weight="bold",
+    font_color="black",
+)
+
+plt.axis("off")
+plt.title("Co-occurrence Network of Vulvodynia-related Terms", fontsize=18)
+plt.tight_layout()
+plt.savefig("/content/drive/MyDrive/Vulvodynia_Fig1_Network.png", dpi=300)
+plt.show()
