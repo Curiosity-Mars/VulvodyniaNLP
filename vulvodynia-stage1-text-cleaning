@@ -1,0 +1,68 @@
+"""
+stage1_cleaning.py
+------------------
+Initial text-cleaning and tokenization for the Vulvodynia Linguistic Network Analysis.
+
+This script:
+1. Loads the raw Reddit corpus from a Word (.docx) file
+2. Removes system/UI words, URLs, and non-alphabetic symbols
+3. Tokenizes and filters English words
+4. Exports a clean token list and word-frequency statistics
+
+Author: Okui & Horie (2025)
+Repository: https://github.com/Curiosity-Mars/vulvodynia-stage1-text-cleaning
+"""
+
+# --- 1. Import required libraries ---
+!pip install python-docx nltk pandas tqdm
+
+import re
+import pandas as pd
+from tqdm import tqdm
+from docx import Document
+import nltk
+
+# Download NLTK resources
+nltk.download("punkt")
+nltk.download("punkt_tab")
+nltk.download("stopwords")
+
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+
+# --- 2. Load Reddit corpus ---
+file_path = "/content/drive/MyDrive/rVulvodynia 251011A.docx"
+doc = Document(file_path)
+raw_text = "\n".join(p.text for p in doc.paragraphs)
+print(f"Characters: {len(raw_text):,}")
+
+# --- 3. Define Reddit UI/system words to remove ---
+ui_words = [
+    "back", "reply", "award", "share", "create", "sort", "best",
+    "follow", "track", "comment", "post", "vote", "report", "save",
+    "give", "award", "crosspost", "community", "subreddit", "discussion",
+    "moderator", "edit", "deleted", "removed", "like", "login", "signup",
+    "•", "–", "—"
+]
+
+# --- 4. Text cleaning ---
+# Remove URLs and special characters
+text = re.sub(r"http\S+|www\S+", "", raw_text)
+text = re.sub(r"[^A-Za-z\s']", " ", text)
+text = re.sub(r"\s+", " ", text).lower()
+
+# --- 5. Tokenization and filtering ---
+stop_words = set(stopwords.words("english"))
+tokens = [w for w in word_tokenize(text) if len(w) > 2 and w not in stop_words]
+
+# Remove Reddit UI/system words
+tokens = [w for w in tokens if w not in ui_words]
+
+print(f"✅ Clean tokens: {len(tokens):,}")
+print("Example:", tokens[:40])
+
+# --- 6. Save results ---
+df = pd.DataFrame({"token": tokens})
+df["position"] = df.index
+df.to_csv("/content/drive/MyDrive/Vulvodynia_tokens_stage1_clean.csv", index=False)
+print("✅ Exported clean tokens → Vulvodynia_tokens_sta
