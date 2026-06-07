@@ -1,0 +1,28 @@
+# === Table 2-detailed with Louvain community IDs ===
+
+# Add type labels to the previously generated top_med_core and top_gen_core tables
+top_med_core = top_med_core.copy()
+top_gen_core = top_gen_core.copy()
+
+top_med_core["type"] = "medical"
+top_gen_core["type"] = "general"
+
+# Retain Louvain community IDs
+top_med_core["community"] = top_med_core["word"].map(partition_core)
+top_gen_core["community"] = top_gen_core["word"].map(partition_core)
+
+# Combine medical and general terms into a single table
+table2_detailed = pd.concat([top_med_core, top_gen_core], ignore_index=True)
+
+table2_detailed = table2_detailed.sort_values(
+    ["type", "degree_centrality"],
+    ascending=[True, False]
+)[["type", "word", "degree_centrality", "community"]]
+
+# Save and inspect the detailed table
+path_detailed = "/content/drive/MyDrive/Vulvodynia_Table2_detailed.csv"
+table2_detailed.to_csv(path_detailed, index=False)
+
+print("=== Table 2-detailed ===")
+print(table2_detailed.to_string(index=False))
+print(f"\n✅ Exported: {path_detailed}")
