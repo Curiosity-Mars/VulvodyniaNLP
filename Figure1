@@ -1,0 +1,80 @@
+```python
+import matplotlib.pyplot as plt
+import networkx as nx
+
+# --- Community color settings ---
+color_map = {
+    0: "#B0B0B0",   # gray
+    3: "#FF8C00",   # dark orange
+    4: "#2E8B57",   # sea green
+    5: "#DC143C",   # crimson
+    9: "#9370DB",   # medium purple
+    11: "#A0522D",  # sienna
+    43: "#FF1493",  # deep pink
+}
+default_color = "#CFE2F3"  # light blue for background nodes
+
+# --- Classify nodes ---
+background_nodes = [n for n in G.nodes() if partition.get(n) not in color_map]
+foreground_nodes = [n for n in G.nodes() if partition.get(n) in color_map]
+
+# --- Reuse network layout ---
+pos = nx.spring_layout(G, k=0.25, iterations=50, seed=42)
+
+plt.figure(figsize=(14, 11))
+
+# Background nodes (light blue with low opacity)
+nx.draw_networkx_nodes(
+    G, pos,
+    nodelist=background_nodes,
+    node_size=[deg_centrality[n] * 8000 for n in background_nodes],
+    node_color=default_color,
+    alpha=0.15,
+    linewidths=0
+)
+
+# Medical communities (community-specific colors with high opacity)
+for cid, c in color_map.items():
+    nodes = [n for n in G.nodes() if partition.get(n) == cid]
+    nx.draw_networkx_nodes(
+        G, pos,
+        nodelist=nodes,
+        node_size=[deg_centrality[n] * 8000 for n in nodes],
+        node_color=c,
+        alpha=0.9,
+        linewidths=0
+    )
+
+# Edges (light gray)
+nx.draw_networkx_edges(
+    G, pos,
+    alpha=0.05,
+    width=0.2,
+    edge_color="#B0B0B0"
+)
+
+# Labels for the top-ranked words (e.g., pain, vulvodynia)
+nx.draw_networkx_labels(
+    G,
+    pos,
+    labels={n: n for n, d in sorted(deg_centrality.items(),
+                                    key=lambda x: -x[1])[:30]},
+    font_size=10,
+    font_weight="bold",
+    font_color="black"
+)
+
+plt.axis("off")
+plt.title(
+    "Core Co-occurrence Network (Background Receded, Highlighted Medical Communities)",
+    fontsize=18
+)
+plt.tight_layout()
+
+plt.savefig(
+    "/content/drive/MyDrive/Vulvodynia_Fig1_CoreNetwork_refined_v2.png",
+    dpi=300
+)
+
+plt.show()
+```
