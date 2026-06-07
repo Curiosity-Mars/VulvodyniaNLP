@@ -1,0 +1,241 @@
+```python
+# === 1️⃣ Required libraries ===
+!pip install python-docx nltk pandas tqdm networkx matplotlib python-louvain adjustText
+
+import re, pandas as pd, networkx as nx, matplotlib.pyplot as plt
+from tqdm import tqdm
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+import community as community_louvain
+from adjustText import adjust_text
+import matplotlib.patheffects as patheffects
+
+# === 2️⃣ Load Reddit text ===
+from docx import Document
+file_path = "/content/drive/MyDrive/rVulvodynia 251011A.docx"
+doc = Document(file_path)
+raw_text = "\n".join(p.text for p in doc.paragraphs)
+print(f"Characters: {len(raw_text):,}")
+
+# === 3️⃣ Text preprocessing ===
+ui_words = [
+    "back","reply","award","share","create","sort","best",
+    "follow","track","comment","post","vote","report","save",
+    "give","award","crosspost","community","subreddit","discussion",
+    "moderator","edit","deleted","removed","like","login","signup",
+    "•","–","—"
+]
+
+text = re.sub(r"http\S+|www\S+", "", raw_text)
+text = re.sub(r"[^A-Za-z\s']", " ", text)
+text = re.sub(r"\s+", " ", text).lower()
+
+nltk.download("punkt")
+nltk.download("stopwords")
+
+stop_words = set(stopwords.words("english"))
+
+tokens = [
+    w for w in word_tokenize(text)
+    if len(w) > 2 and w not in stop_words and w not in ui_words
+]
+
+# === 4️⃣ Construct co-occurrence network ===
+window = 5
+edges = {}
+
+for i in tqdm(range(len(tokens))):
+    for j in range(i + 1, min(i + window + 1, len(tokens))):
+        pair = tuple(sorted([tokens[i], tokens[j]]))
+        edges[pair] = edges.get(pair, 0) + 1
+
+G = nx.Graph()
+
+for (w1, w2), weight in edges.items():
+    if weight >= 3:
+        G.add_edge(w1, w2, weight=weight)
+
+print(f"✅ Full network: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
+
+# === 5️⃣ Calculate degree centrality and extract the top 500 words (core network) ===
+deg_centrality = nx.degree_centrality(G)
+
+top_nodes = sorted(
+    deg_centrality,
+    key=deg_centrality.get,
+    reverse=True
+)[:500]
+
+core_G = G.subgraph(top_nodes).copy()
+
+print(f"✅ Core network: {core_G.number_of_nodes()} nodes, {core_G.number_of_edges()} edges")
+
+# === 6️⃣ Louvain community detection ===
+partition = community_louvain.best_partition(
+    core_G,
+    resolution=1.0
+)
+
+# === 7️⃣ Construct Disparity Backbone ===
+def disparity_backbone(G, alpha=0.05):
+
+    H = nx.Graph()
+
+    for u in G.nodes():
+
+        neighbors = list(G.neighbors(u))
+        k = len(neighbors)
+
+        if k > 1:
+
+            sum_w = sum(
+                G[u][v]['weight']
+                for v in neighbors
+            )
+
+            for v in neighbors:
+
+                p_ij = G[u][v]['weight'] / sum_w
+
+                significance = 1 - (1 - p_ij) ** (k - 1)
+
+                if significance < alpha:
+                    H.add_edge(
+                        u,
+                        v,
+                        weight=G[u][v]['weight']
+                    )
+
+    return H
+
+sub_backbone = disparity_backbone(
+    core_G,
+    alpha=0.05
+)
+
+print(
+    f"✅ Disparity Backbone: "
+    f"{sub_backbone.number_of_nodes()} nodes, "
+    f"{sub_backbone.number_of_edges()} edges"
+)
+
+# === 8️⃣ Remove noise terms ===
+noise_words = {
+    "ago","avatar","nt","n't",
+    "get","use","also","know",
+    "one","think"
+}
+
+sub_backbone.remove_nodes_from(
+    [n for n in sub_backbone.nodes() if n in noise_words]
+)
+
+print(
+    f"✅ After noise removal: "
+    f"{sub_backbone.number_of_nodes()} nodes"
+)
+
+# === 9️⃣ Use the same color scheme as Figure 1 ===
+color_map = {
+    0:"#B0B0B0",
+    3:"#FF8C00",
+    4:"#2E8B57",
+    5:"#DC143C",
+    9:"#9370DB",
+    11:"#A0522D",
+    43:"#FF1493"
+}
+
+node_colors = [
+    color_map.get(partition.get(n), "#CFE2F3")
+    for n in sub_backbone.nodes()
+]
+
+# === 🔟 Visualization ===
+pos_b = nx.spring_layout(
+    sub_backbone,
+    k=0.45,
+    iterations=120,
+    seed=42
+)
+
+top_labels = [
+    w for w, _ in sorted(
+        (
+            (n, deg_centrality.get(n, 0))
+            for n in sub_backbone.nodes()
+        ),
+        key=lambda x: -x[1]
+    )[:25]
+]
+
+plt.figure(figsize=(14, 10))
+
+nx.draw_networkx_nodes(
+    sub_backbone,
+    pos_b,
+    node_size=[
+        deg_centrality.get(n, 0) * 9000
+        for n in sub_backbone.nodes()
+    ],
+    node_color=node_colors,
+    alpha=0.8
+)
+
+nx.draw_networkx_edges(
+    sub_backbone,
+    pos_b,
+    width=0.4,
+    alpha=0.25,
+    edge_color="#B0B0B0"
+)
+
+texts = []
+
+for n in top_labels:
+
+    x, y = pos_b[n]
+
+    txt = plt.text(
+        x,
+        y,
+        n,
+        fontsize=11,
+        fontweight='bold',
+        color='black',
+        path_effects=[
+            patheffects.withStroke(
+                linewidth=3,
+                foreground='white'
+            )
+        ]
+    )
+
+    texts.append(txt)
+
+adjust_text(
+    texts,
+    arrowprops=dict(
+        arrowstyle="-",
+        color='gray',
+        lw=0.5
+    )
+)
+
+plt.title(
+    "Vulvodynia Reddit Disparity Backbone (α = 0.05)",
+    fontsize=16
+)
+
+plt.axis("off")
+plt.tight_layout()
+
+plt.savefig(
+    "/content/drive/MyDrive/Vulvodynia_Backbone_Final.png",
+    dpi=300,
+    bbox_inches='tight'
+)
+
+plt.show()
+```
