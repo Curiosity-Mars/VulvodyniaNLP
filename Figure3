@@ -1,0 +1,62 @@
+```python
+import seaborn as sns
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# df_symp_anat has already been generated
+# Required columns: symptom, anatomy, cooccurrence
+
+# === 1. Convert to matrix format ===
+pivot = df_symp_anat.pivot(
+    index="symptom",
+    columns="anatomy",
+    values="cooccurrence"
+).fillna(0)
+
+# === 2. Reorder rows and columns according to clinical relevance ===
+symptom_order = [
+    "pain", "burning", "itching", "pressure", "tightness",
+    "raw", "numb", "cramp", "tingling", "soreness"
+]
+
+anatomy_order = [
+    "vagina", "vaginal", "vulva", "vulvar", "urethra", "bladder",
+    "pelvic", "floor", "skin", "clitoris", "perineum"
+]
+
+pivot = pivot.reindex(
+    index=symptom_order,
+    columns=anatomy_order
+)
+
+# === 3. Generate heatmap ===
+plt.figure(figsize=(10, 6))
+
+sns.heatmap(
+    pivot,
+    cmap="YlOrRd",
+    linewidths=0.5,
+    annot=True,
+    fmt=".0f",
+    cbar_kws={'label': 'Co-occurrence frequency'}
+)
+
+plt.title(
+    "Symptom–Anatomy Co-occurrence Heatmap (Vulvodynia Reddit Corpus)",
+    fontsize=14,
+    pad=15
+)
+
+plt.xlabel("Anatomical terms", fontsize=12)
+plt.ylabel("Symptom terms", fontsize=12)
+
+plt.tight_layout()
+
+outpath = "/content/drive/MyDrive/Vulvodynia_Fig3_Symptom_Anatomy_heatmap.png"
+
+plt.savefig(outpath, dpi=300)
+
+plt.show()
+
+print(f"✅ Exported: {outpath}")
+```
