@@ -1,0 +1,1135 @@
+```python
+# ============================================================
+# 11. Clinically important symptom/anatomy lexicon comparison
+# ============================================================
+
+symptoms = [
+    "pain", "burning", "itching", "pressure", "tightness",
+    "raw", "numb", "cramp", "tingling", "soreness",
+    "dyspareunia", "discomfort"
+]
+
+anatomy = [
+    "vagina", "vaginal", "vulva", "vulvar", "vestibule",
+    "vestibular", "urethra", "bladder", "pelvic", "floor",
+    "skin", "clitoris", "perineum"
+]
+
+focus_terms = symptoms + anatomy
+
+def focus_term_table(G, source):
+    deg = nx.degree_centrality(G)
+    weighted_degree = dict(G.degree(weight="weight"))
+
+    rows = []
+    for term in focus_terms:
+        rows.append({
+            "source": source,
+            "term": term,
+            "present": term in G.nodes(),
+            "degree_centrality": deg.get(term, 0),
+            "weighted_degree": weighted_degree.get(term, 0),
+            "degree": G.degree(term) if term in G.nodes() else 0
+        })
+    return pd.DataFrame(rows)
+
+focus_pub = focus_term_table(G_pub, "PubMed")
+focus_red = focus_term_table(G_red, "Reddit")
+
+focus_compare = pd.concat([focus_pub, focus_red], ignore_index=True)
+focus_compare.to_csv(f"{OUTDIR}/focus_symptom_anatomy_terms_pubmed_vs_reddit.csv", index=False)
+
+focus_pivot = focus_compare.pivot_table(
+    index="term",
+    columns="source",
+    values="degree_centrality",
+    fill_value=0
+).reset_index()
+
+focus_pivot["log2_pubmed_vs_reddit"] = np.log2(
+    (focus_pivot.get("PubMed", 0) + eps) /
+    (focus_pivot.get("Reddit", 0) + eps)
+)
+
+focus_pivot.to_csv(f"{OUTDIR}/focus_terms_degree_pivot_pubmed_vs_reddit.csv", index=False)
+focus_pivot.sort_values("log2_pubmed_vs_reddit")
+
+# ============================================================
+# 12. Symptom-anatomy co-occurrence matrices
+# ============================================================
+
+def symptom_anatomy_matrix(edges_counter, source):
+    rows = []
+    for s in symptoms:
+        for a in anatomy:
+            pair = tuple(sorted([s, a]))
+            rows.append({
+                "source": source,
+                "symptom": s,
+                "anatomy": a,
+                "count": edges_counter.get(pair, 0)
+            })
+    return pd.DataFrame(rows)
+
+mat_pub = symptom_anatomy_matrix(edges_pub_all, "PubMed")
+mat_red = symptom_anatomy_matrix(edges_red_all, "Reddit")
+
+mat_all = pd.concat([mat_pub, mat_red], ignore_index=True)
+mat_all.to_csv(f"{OUTDIR}/symptom_anatomy_pair_counts_pubmed_vs_reddit.csv", index=False)
+
+def save_heatmap(mat_df, source):
+    pivot = mat_df[mat_df["source"] == source].pivot(
+        index="symptom",
+        columns="anatomy",
+        values="count"
+    ).fillna(0)
+
+    plt.figure(figsize=(14, 8))
+    plt.imshow(pivot.values, aspect="auto")
+    plt.xticks(range(len(pivot.columns)), pivot.columns, rotation=45, ha="right")
+    plt.yticks(range(len(pivot.index)), pivot.index)
+    plt.colorbar(label="Co-occurrence count")
+    plt.title(f"{source} symptom-anatomy co-occurrence matrix")
+    plt.tight_layout()
+
+    out = f"{OUTDIR}/{source}_symptom_anatomy_heatmap.png"
+    plt.savefig(out, dpi=300)
+    plt.show()
+    print("Saved:", out)
+
+save_heatmap(mat_all, "PubMed")
+save_heatmap(mat_all, "Reddit")
+
+# ============================================================
+# 13. Top enriched terms in each corpus
+# ============================================================
+
+top_pubmed_enriched = merged.sort_values(
+    "log2_pubmed_vs_reddit_degree",
+    ascending=False
+).head(50)
+
+top_reddit_enriched = merged.sort_values(
+    "log2_pubmed_vs_reddit_degree",
+    ascending=True
+).head(50)
+
+top_pubmed_enriched.to_csv(f"{OUTDIR}/top50_pubmed_enriched_terms.csv", index=False)
+top_reddit_enriched.to_csv(f"{OUTDIR}/top50_reddit_enriched_terms.csv", index=False)
+
+print("=== Top PubMed-enriched terms ===")
+print(top_pubmed_enriched[[
+    "word",
+    "degree_centrality_pubmed",
+    "degree_centrality_reddit",
+    "log2_pubmed_vs_reddit_degree"
+]].head(20))
+
+print("\n=== Top Reddit-enriched terms ===")
+print(top_reddit_enriched[[
+    "word",
+    "degree_centrality_pubmed",
+    "degree_centrality_reddit",
+    "log2_pubmed_vs_reddit_degree"
+]].head(20))
+
+# ============================================================
+# 14. Export compact manuscript-ready tables
+# ============================================================
+
+# Table A: network summary
+summary_df.to_csv(f"{OUTDIR}/Table_external_validation_network_summary.csv", index=False)
+
+# Table B: top 30 central words in each corpus
+top_pub = pub_nodes.sort_values("degree_centrality", ascending=False).head(30)
+top_red = red_nodes.sort_values("degree_centrality", ascending=False).head(30)
+
+top_pub.to_csv(f"{OUTDIR}/Table_top30_pubmed_central_terms.csv", index=False)
+top_red.to_csv(f"{OUTDIR}/Table_top30_reddit_central_terms.csv", index=False)
+
+# Table C: focused symptom/anatomy terms
+focus_pivot.to_csv(f"{OUTDIR}/Table_focus_terms_pubmed_vs_reddit.csv", index=False)
+
+# Table D: symptom-anatomy pair matrix in long format
+mat_all.to_csv(f"{OUTDIR}/Table_symptom_anatomy_pairs_pubmed_vs_reddit.csv", index=False)
+
+print("✅ All manuscript-ready tables exported.")
+print("Folder:", OUTDIR)
+
+# ============================================================
+# A. PubMed CSV filtering: vulvodynia-only records from the last 5 years
+# ============================================================
+
+pub = pd.read_csv(PUBMED_CSV)
+
+# Clean publication year
+pub["Publication Year_num"] = pd.to_numeric(pub["Publication Year"], errors="coerce")
+
+# Combine title and abstract text
+pub["Title_clean"] = pub["Title"].fillna("").astype(str)
+pub["Abstract_clean"] = pub["Abstract Note"].fillna("").astype(str)
+
+search_text = (
+    pub["Title_clean"] + " " + pub["Abstract_clean"]
+).str.lower()
+
+# Vulvodynia-relevant filter
+vulvo_terms = [
+    "vulvodynia",
+    "vestibulodynia",
+    "vulvar pain",
+    "vulval pain",
+    "provoked vestibulodynia",
+    "localized provoked vulvodynia"
+]
+
+pattern = "|".join([re.escape(x) for x in vulvo_terms])
+
+pub_v = pub[
+    search_text.str.contains(pattern, na=False)
+].copy()
+
+# Optional restriction to 2020–2025 if publication year is available
+pub_v = pub_v[
+    (pub_v["Publication Year_num"].isna()) |
+    ((pub_v["Publication Year_num"] >= 2020) & (pub_v["Publication Year_num"] <= 2025))
+].copy()
+
+pub_abs = pub_v["Abstract Note"].dropna().astype(str)
+pub_abs = pub_abs[pub_abs.str.len() > 20]
+
+print("Original rows:", len(pub))
+print("Filtered vulvodynia rows:", len(pub_v))
+print("Abstracts used:", len(pub_abs))
+
+pub_v.to_csv(f"{OUTDIR}/PubMed_vulvodynia_filtered_records.csv", index=False)
+
+# ============================================================
+# B. Stronger cleaning for PubMed-vs-Reddit comparison
+# ============================================================
+
+extra_noise_words = set([
+    # Reddit conversational and artifact terms
+    "ago", "n't", "get", "got", "know", "think", "would", "could",
+    "really", "much", "still", "even", "see", "try", "tried",
+    "going", "helped", "thank", "thanks", "take", "things",
+    "hope", "sure", "something", "want", "lot", "like",
+    "one", "two", "also", "maybe", "anyone", "someone",
+    "anything", "everything", "feel", "felt", "feeling",
+
+    # Academic boilerplate terms
+    "background", "objective", "objectives", "method", "methods",
+    "result", "results", "conclusion", "conclusions", "study",
+    "studies", "aim", "aims", "purpose", "investigate",
+    "assess", "evaluate", "analysis", "analyses", "data",
+    "reported", "conducted", "respectively", "significant",
+    "associated", "outcomes", "cohort", "randomized", "index",
+    "intervention", "interventions", "model", "models",
+
+    # Non-specific terms not useful as central terms
+    "patient", "patients", "participant", "participants",
+    "women", "female", "females"
+])
+
+remove_words = remove_words | extra_noise_words
+
+pub_text_filtered = " ".join(pub_abs.tolist())
+pub_tokens2 = clean_text_to_tokens(pub_text_filtered)
+
+reddit_tokens2 = [
+    w for w in reddit_df["token"].dropna().astype(str).tolist()
+    if len(w) > 2 and w not in remove_words
+]
+
+print("PubMed filtered tokens:", len(pub_tokens2), "unique:", len(set(pub_tokens2)))
+print("Reddit filtered tokens:", len(reddit_tokens2), "unique:", len(set(reddit_tokens2)))
+
+# ============================================================
+# C. Rebuild cleaned networks
+# ============================================================
+
+G_pub2, edges_pub2_all = build_cooccurrence_network(
+    pub_tokens2,
+    window=5,
+    min_edge_weight=3
+)
+
+G_red2, edges_red2_all = build_cooccurrence_network(
+    reddit_tokens2,
+    window=5,
+    min_edge_weight=3
+)
+
+print("PubMed cleaned network:", G_pub2.number_of_nodes(), "nodes,", G_pub2.number_of_edges(), "edges")
+print("Reddit cleaned network:", G_red2.number_of_nodes(), "nodes,", G_red2.number_of_edges(), "edges")
+
+pub2_summary, pub2_nodes, pub2_topcomm = summarize_network(G_pub2, "PubMed_cleaned")
+red2_summary, red2_nodes, red2_topcomm = summarize_network(G_red2, "Reddit_cleaned")
+
+summary2_df = pd.DataFrame([pub2_summary, red2_summary])
+summary2_df.to_csv(f"{OUTDIR}/network_summary_pubmed_vs_reddit_cleaned.csv", index=False)
+
+summary2_df
+
+# ============================================================
+# D. Readable heatmap using log1p(count)
+# ============================================================
+
+mat_pub2 = symptom_anatomy_matrix(edges_pub2_all, "PubMed_cleaned")
+mat_red2 = symptom_anatomy_matrix(edges_red2_all, "Reddit_cleaned")
+mat2_all = pd.concat([mat_pub2, mat_red2], ignore_index=True)
+
+mat2_all.to_csv(
+    f"{OUTDIR}/symptom_anatomy_pair_counts_pubmed_vs_reddit_cleaned.csv",
+    index=False
+)
+
+def save_heatmap_log(mat_df, source):
+    pivot = mat_df[mat_df["source"] == source].pivot(
+        index="symptom",
+        columns="anatomy",
+        values="count"
+    ).fillna(0)
+
+    plot_values = np.log1p(pivot.values)
+
+    plt.figure(figsize=(14, 8))
+    plt.imshow(plot_values, aspect="auto")
+    plt.xticks(range(len(pivot.columns)), pivot.columns, rotation=45, ha="right")
+    plt.yticks(range(len(pivot.index)), pivot.index)
+    plt.colorbar(label="log1p co-occurrence count")
+    plt.title(f"{source} symptom-anatomy co-occurrence matrix")
+
+    # Add raw counts as text labels
+    for i in range(pivot.shape[0]):
+        for j in range(pivot.shape[1]):
+            val = int(pivot.iloc[i, j])
+            if val > 0:
+                plt.text(j, i, str(val), ha="center", va="center", fontsize=7)
+
+    plt.tight_layout()
+
+    out = f"{OUTDIR}/{source}_symptom_anatomy_heatmap_log1p.png"
+    plt.savefig(out, dpi=300)
+    plt.show()
+    print("Saved:", out)
+
+save_heatmap_log(mat2_all, "PubMed_cleaned")
+save_heatmap_log(mat2_all, "Reddit_cleaned")
+
+# ============================================================
+# E. Manuscript-ready centrality comparison after cleaning
+# ============================================================
+
+pub2_rank = add_rank_and_source(pub2_nodes, "PubMed_cleaned")
+red2_rank = add_rank_and_source(red2_nodes, "Reddit_cleaned")
+
+merged2 = pd.merge(
+    pub2_rank[["word", "degree_centrality", "weighted_degree", "rank"]],
+    red2_rank[["word", "degree_centrality", "weighted_degree", "rank"]],
+    on="word",
+    how="outer",
+    suffixes=("_pubmed", "_reddit")
+)
+
+for col in [
+    "degree_centrality_pubmed", "degree_centrality_reddit",
+    "weighted_degree_pubmed", "weighted_degree_reddit"
+]:
+    merged2[col] = merged2[col].fillna(0)
+
+eps = 1e-9
+
+merged2["log2_pubmed_vs_reddit_degree"] = np.log2(
+    (merged2["degree_centrality_pubmed"] + eps) /
+    (merged2["degree_centrality_reddit"] + eps)
+)
+
+merged2["abs_difference"] = abs(
+    merged2["degree_centrality_pubmed"] -
+    merged2["degree_centrality_reddit"]
+)
+
+merged2 = merged2.sort_values("abs_difference", ascending=False)
+
+merged2.to_csv(
+    f"{OUTDIR}/PubMed_vs_Reddit_word_centrality_comparison_cleaned.csv",
+    index=False
+)
+
+top_pub_clean = pub2_nodes.sort_values("degree_centrality", ascending=False).head(30)
+top_red_clean = red2_nodes.sort_values("degree_centrality", ascending=False).head(30)
+
+top_pub_clean.to_csv(f"{OUTDIR}/Table_top30_pubmed_central_terms_cleaned.csv", index=False)
+top_red_clean.to_csv(f"{OUTDIR}/Table_top30_reddit_central_terms_cleaned.csv", index=False)
+
+print("=== Top PubMed central terms after cleaning ===")
+display(top_pub_clean.head(20))
+
+print("=== Top Reddit central terms after cleaning ===")
+display(top_red_clean.head(20))
+```
+```python
+# ============================================================
+# Figure 4 and Table 3
+# PubMed vs Reddit external validation
+# Symptom-anatomy heatmap comparison + network summary table
+# ============================================================
+
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+FIG4_DIR = f"{OUTDIR}/Figure4_Table3_external_validation_final"
+os.makedirs(FIG4_DIR, exist_ok=True)
+
+# ------------------------------------------------------------
+# 1. Define symptom and anatomy terms
+# Same conceptual set as Figure 3, expanded for PubMed comparison
+# ------------------------------------------------------------
+
+symptoms_fig4 = [
+    "pain",
+    "burning",
+    "pressure",
+    "itching",
+    "tightness",
+    "raw",
+    "numb",
+    "tingling",
+    "soreness",
+    "dyspareunia",
+    "discomfort"
+]
+
+anatomy_fig4 = [
+    "vulvar",
+    "vulva",
+    "vaginal",
+    "vagina",
+    "vestibule",
+    "vestibular",
+    "pelvic",
+    "floor",
+    "skin",
+    "clitoris",
+    "urethra",
+    "bladder",
+    "perineum"
+]
+
+
+# ------------------------------------------------------------
+# 2. Build symptom-anatomy matrices from edge counters
+# ------------------------------------------------------------
+
+def build_symptom_anatomy_matrix(edges_counter, symptoms, anatomy):
+    data = pd.DataFrame(
+        0,
+        index=symptoms,
+        columns=anatomy,
+        dtype=int
+    )
+
+    for s in symptoms:
+        for a in anatomy:
+            pair = tuple(sorted([s, a]))
+            data.loc[s, a] = int(edges_counter.get(pair, 0))
+
+    return data
+
+pub_heat = build_symptom_anatomy_matrix(
+    edges_pub2_all,
+    symptoms_fig4,
+    anatomy_fig4
+)
+
+red_heat = build_symptom_anatomy_matrix(
+    edges_red2_all,
+    symptoms_fig4,
+    anatomy_fig4
+)
+
+pub_heat.to_csv(f"{FIG4_DIR}/Figure4a_PubMed_symptom_anatomy_matrix_raw.csv")
+red_heat.to_csv(f"{FIG4_DIR}/Figure4b_Reddit_symptom_anatomy_matrix_raw.csv")
+
+
+# ------------------------------------------------------------
+# 3. Create Figure 4: side-by-side heatmap
+# Use log1p(count) for visual readability; raw counts printed in cells
+# ------------------------------------------------------------
+
+def plot_one_heatmap(ax, matrix, title, vmax=None):
+    plot_values = np.log1p(matrix.values)
+
+    im = ax.imshow(
+        plot_values,
+        aspect="auto",
+        vmin=0,
+        vmax=vmax
+    )
+
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xticks(range(matrix.shape[1]))
+    ax.set_xticklabels(matrix.columns, rotation=45, ha="right", fontsize=9)
+    ax.set_yticks(range(matrix.shape[0]))
+    ax.set_yticklabels(matrix.index, fontsize=9)
+
+    # Add raw count labels
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[1]):
+            val = int(matrix.iloc[i, j])
+            if val > 0:
+                ax.text(
+                    j,
+                    i,
+                    str(val),
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color="black"
+                )
+
+    return im
+
+# Shared color scale
+combined_log_values = np.concatenate([
+    np.log1p(pub_heat.values.flatten()),
+    np.log1p(red_heat.values.flatten())
+])
+shared_vmax = combined_log_values.max()
+
+fig, axes = plt.subplots(
+    1,
+    2,
+    figsize=(22, 8),
+    constrained_layout=True
+)
+
+im1 = plot_one_heatmap(
+    axes[0],
+    pub_heat,
+    "Figure 4a. PubMed clinical literature",
+    vmax=shared_vmax
+)
+
+im2 = plot_one_heatmap(
+    axes[1],
+    red_heat,
+    "Figure 4b. Reddit patient discourse",
+    vmax=shared_vmax
+)
+
+cbar = fig.colorbar(
+    im2,
+    ax=axes.ravel().tolist(),
+    shrink=0.85
+)
+cbar.set_label("log1p co-occurrence count", fontsize=11)
+
+fig.suptitle(
+    "Figure 4. Symptom-anatomy co-occurrence comparison between clinical literature and patient discourse",
+    fontsize=16,
+    fontweight="bold"
+)
+
+png_path = f"{FIG4_DIR}/Figure4_PubMed_vs_Reddit_symptom_anatomy_heatmap.png"
+pdf_path = f"{FIG4_DIR}/Figure4_PubMed_vs_Reddit_symptom_anatomy_heatmap.pdf"
+svg_path = f"{FIG4_DIR}/Figure4_PubMed_vs_Reddit_symptom_anatomy_heatmap.svg"
+
+plt.savefig(png_path, dpi=300, bbox_inches="tight")
+plt.savefig(pdf_path, bbox_inches="tight")
+plt.savefig(svg_path, bbox_inches="tight")
+plt.show()
+
+print("✅ Figure 4 saved:")
+print(png_path)
+print(pdf_path)
+print(svg_path)
+
+# ============================================================
+# 6. Export manuscript-ready top term tables
+# ============================================================
+
+pub_top30 = pub2_nodes.sort_values("degree_centrality", ascending=False).head(30)
+red_top30 = red2_nodes.sort_values("degree_centrality", ascending=False).head(30)
+
+pub_top30.to_csv(f"{FIG4_DIR}/PubMed_top30_central_terms.csv", index=False)
+red_top30.to_csv(f"{FIG4_DIR}/Reddit_top30_central_terms.csv", index=False)
+
+print("✅ All outputs saved in:")
+print(FIG4_DIR)
+
+print("\nTop PubMed terms:")
+display(pub_top30[["word", "degree_centrality", "weighted_degree", "community"]].head(20))
+
+print("\nTop Reddit terms:")
+display(red_top30[["word", "degree_centrality", "weighted_degree", "community"]].head(20))
+
+# ============================================================
+# Final Figure 4
+# 4a: PubMed symptom-anatomy heatmap
+# 4b: Difference heatmap, log2((Reddit + 1) / (PubMed + 1))
+# ============================================================
+
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+FIG4_FINAL_DIR = f"{OUTDIR}/Figure4_final_pubmed_and_difference_heatmap"
+os.makedirs(FIG4_FINAL_DIR, exist_ok=True)
+
+# ------------------------------------------------------------
+# 1. Define symptom and anatomy terms
+# Keep order close to Figure 3, but include dyspareunia/discomfort
+# ------------------------------------------------------------
+
+symptoms_fig4 = [
+    "pain",
+    "burning",
+    "pressure",
+    "itching",
+    "tightness",
+    "raw",
+    "numb",
+    "tingling",
+    "soreness",
+    "dyspareunia",
+    "discomfort"
+]
+
+anatomy_fig4 = [
+    "vulvar",
+    "vulva",
+    "vaginal",
+    "vagina",
+    "vestibule",
+    "vestibular",
+    "pelvic",
+    "floor",
+    "skin",
+    "clitoris",
+    "urethra",
+    "bladder",
+    "perineum"
+]
+
+
+# ------------------------------------------------------------
+# 2. Build matrices
+# Requires edges_pub2_all and edges_red2_all
+# ------------------------------------------------------------
+
+def build_symptom_anatomy_matrix(edges_counter, symptoms, anatomy):
+    mat = pd.DataFrame(
+        0,
+        index=symptoms,
+        columns=anatomy,
+        dtype=int
+    )
+
+    for s in symptoms:
+        for a in anatomy:
+            pair = tuple(sorted([s, a]))
+            mat.loc[s, a] = int(edges_counter.get(pair, 0))
+
+    return mat
+
+pub_mat = build_symptom_anatomy_matrix(
+    edges_pub2_all,
+    symptoms_fig4,
+    anatomy_fig4
+)
+
+red_mat = build_symptom_anatomy_matrix(
+    edges_red2_all,
+    symptoms_fig4,
+    anatomy_fig4
+)
+
+# Difference matrix
+# Positive values = Reddit-enriched
+# Negative values = PubMed-enriched
+diff_log2 = np.log2((red_mat + 1) / (pub_mat + 1))
+
+pub_mat.to_csv(f"{FIG4_FINAL_DIR}/Figure4a_PubMed_symptom_anatomy_raw_counts.csv")
+red_mat.to_csv(f"{FIG4_FINAL_DIR}/Reddit_symptom_anatomy_raw_counts_for_difference.csv")
+diff_log2.to_csv(f"{FIG4_FINAL_DIR}/Figure4b_log2_Reddit_over_PubMed_difference.csv")
+
+
+# ------------------------------------------------------------
+# 3. Plot helper for raw PubMed heatmap
+# ------------------------------------------------------------
+
+def plot_pubmed_heatmap(ax, matrix, title):
+    plot_values = np.log1p(matrix.values)
+
+    im = ax.imshow(
+        plot_values,
+        aspect="auto",
+        cmap="viridis",
+        vmin=0
+    )
+
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xticks(range(matrix.shape[1]))
+    ax.set_xticklabels(matrix.columns, rotation=45, ha="right", fontsize=9)
+    ax.set_yticks(range(matrix.shape[0]))
+    ax.set_yticklabels(matrix.index, fontsize=9)
+
+    for i in range(matrix.shape[0]):
+        for j in range(matrix.shape[1]):
+            val = int(matrix.iloc[i, j])
+            if val > 0:
+                ax.text(
+                    j,
+                    i,
+                    str(val),
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color="black"
+                )
+
+    return im
+
+
+# ------------------------------------------------------------
+# 4. Plot helper for difference heatmap
+# ------------------------------------------------------------
+
+def plot_difference_heatmap(ax, diff_matrix, red_counts, pub_counts, title):
+    max_abs = np.nanmax(np.abs(diff_matrix.values))
+
+    im = ax.imshow(
+        diff_matrix.values,
+        aspect="auto",
+        cmap="coolwarm",
+        vmin=-max_abs,
+        vmax=max_abs
+    )
+
+    ax.set_title(title, fontsize=14, fontweight="bold")
+    ax.set_xticks(range(diff_matrix.shape[1]))
+    ax.set_xticklabels(diff_matrix.columns, rotation=45, ha="right", fontsize=9)
+    ax.set_yticks(range(diff_matrix.shape[0]))
+    ax.set_yticklabels(diff_matrix.index, fontsize=9)
+
+    # Annotate selected cells only to avoid overcrowding.
+    # Labels show raw Reddit/PubMed counts for informative cells.
+    for i in range(diff_matrix.shape[0]):
+        for j in range(diff_matrix.shape[1]):
+            val = diff_matrix.iloc[i, j]
+            r = int(red_counts.iloc[i, j])
+            p = int(pub_counts.iloc[i, j])
+
+            # Label cells with enough signal or strong difference
+            if (r + p >= 10) or (abs(val) >= 2):
+                ax.text(
+                    j,
+                    i,
+                    f"{r}/{p}",
+                    ha="center",
+                    va="center",
+                    fontsize=7,
+                    color="black"
+                )
+
+    return im
+
+
+# ------------------------------------------------------------
+# 5. Draw final Figure 4
+# ------------------------------------------------------------
+
+fig, axes = plt.subplots(
+    1,
+    2,
+    figsize=(22, 8),
+    constrained_layout=True
+)
+
+im_a = plot_pubmed_heatmap(
+    axes[0],
+    pub_mat,
+    "Figure 4a. PubMed clinical literature"
+)
+
+im_b = plot_difference_heatmap(
+    axes[1],
+    diff_log2,
+    red_mat,
+    pub_mat,
+    "Figure 4b. Difference: Reddit vs PubMed"
+)
+
+# Colorbar for PubMed heatmap
+cbar_a = fig.colorbar(
+    im_a,
+    ax=axes[0],
+    shrink=0.85
+)
+cbar_a.set_label("log1p PubMed co-occurrence count", fontsize=10)
+
+# Colorbar for difference heatmap
+cbar_b = fig.colorbar(
+    im_b,
+    ax=axes[1],
+    shrink=0.85
+)
+cbar_b.set_label("log2((Reddit + 1) / (PubMed + 1))", fontsize=10)
+
+fig.suptitle(
+    "Figure 4. External validation of symptom-anatomy associations using clinical literature",
+    fontsize=16,
+    fontweight="bold"
+)
+
+png_path = f"{FIG4_FINAL_DIR}/Figure4_external_validation_pubmed_and_difference_heatmap.png"
+pdf_path = f"{FIG4_FINAL_DIR}/Figure4_external_validation_pubmed_and_difference_heatmap.pdf"
+svg_path = f"{FIG4_FINAL_DIR}/Figure4_external_validation_pubmed_and_difference_heatmap.svg"
+
+plt.savefig(png_path, dpi=300, bbox_inches="tight")
+plt.savefig(pdf_path, bbox_inches="tight")
+plt.savefig(svg_path, bbox_inches="tight")
+plt.show()
+
+print("✅ Figure 4 saved:")
+print(png_path)
+print(pdf_path)
+print(svg_path)
+
+# ============================================================
+# Final Figure 4 - revised to match Figure 3 style
+# 4a: PubMed symptom-anatomy heatmap, same visual style as Figure 3
+# 4b: Difference heatmap, log2((Reddit + 1) / (PubMed + 1))
+# ============================================================
+
+import os
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+FIG4_FINAL_DIR = f"{OUTDIR}/Figure4_final_pubmed_and_difference_heatmap_Fig3style"
+os.makedirs(FIG4_FINAL_DIR, exist_ok=True)
+
+# ------------------------------------------------------------
+# 1. Define symptom and anatomy terms
+# Figure 3 order preserved first; dyspareunia/discomfort added at bottom
+# ------------------------------------------------------------
+
+symptoms_fig4 = [
+    "pain",
+    "burning",
+    "itching",
+    "pressure",
+    "tightness",
+    "raw",
+    "numb",
+    "cramp",
+    "tingling",
+    "soreness",
+    "dyspareunia",
+    "discomfort"
+]
+
+anatomy_fig4 = [
+    "vagina",
+    "vaginal",
+    "vulva",
+    "vulvar",
+    "urethra",
+    "bladder",
+    "pelvic",
+    "floor",
+    "skin",
+    "clitoris",
+    "vestibule",
+    "vestibular",
+    "perineum"
+]
+
+
+# ------------------------------------------------------------
+# 2. Build matrices
+# Requires edges_pub2_all and edges_red2_all
+# ------------------------------------------------------------
+
+def build_symptom_anatomy_matrix(edges_counter, symptoms, anatomy):
+    mat = pd.DataFrame(
+        0,
+        index=symptoms,
+        columns=anatomy,
+        dtype=int
+    )
+
+    for s in symptoms:
+        for a in anatomy:
+            pair = tuple(sorted([s, a]))
+            mat.loc[s, a] = int(edges_counter.get(pair, 0))
+
+    return mat
+
+
+pub_mat = build_symptom_anatomy_matrix(
+    edges_pub2_all,
+    symptoms_fig4,
+    anatomy_fig4
+)
+
+red_mat = build_symptom_anatomy_matrix(
+    edges_red2_all,
+    symptoms_fig4,
+    anatomy_fig4
+)
+
+# Difference matrix
+# Positive values = Reddit-enriched
+# Negative values = PubMed-enriched
+diff_log2 = np.log2((red_mat + 1) / (pub_mat + 1))
+
+pub_mat.to_csv(
+    f"{FIG4_FINAL_DIR}/Figure4a_PubMed_symptom_anatomy_raw_counts.csv"
+)
+
+red_mat.to_csv(
+    f"{FIG4_FINAL_DIR}/Reddit_symptom_anatomy_raw_counts_for_difference.csv"
+)
+
+diff_log2.to_csv(
+    f"{FIG4_FINAL_DIR}/Figure4b_log2_Reddit_over_PubMed_difference.csv"
+)
+
+
+# ------------------------------------------------------------
+# 3. Figure 4a PubMed heatmap
+# Same visual grammar as Figure 3
+# ------------------------------------------------------------
+
+plt.figure(figsize=(10, 6))
+
+sns.heatmap(
+    pub_mat,
+    cmap="YlOrRd",
+    linewidths=0.5,
+    annot=True,
+    fmt=".0f",
+    cbar_kws={"label": "Co-occurrence frequency"}
+)
+
+plt.title(
+    "Figure 4a. Symptom–Anatomy Co-occurrence Heatmap (PubMed Vulvodynia Literature)",
+    fontsize=14,
+    pad=15
+)
+
+plt.xlabel("Anatomical terms", fontsize=12)
+plt.ylabel("Symptom terms", fontsize=12)
+plt.tight_layout()
+
+fig4a_png = f"{FIG4_FINAL_DIR}/Figure4a_PubMed_symptom_anatomy_heatmap_Fig3style.png"
+fig4a_pdf = f"{FIG4_FINAL_DIR}/Figure4a_PubMed_symptom_anatomy_heatmap_Fig3style.pdf"
+fig4a_svg = f"{FIG4_FINAL_DIR}/Figure4a_PubMed_symptom_anatomy_heatmap_Fig3style.svg"
+
+plt.savefig(fig4a_png, dpi=300, bbox_inches="tight")
+plt.savefig(fig4a_pdf, bbox_inches="tight")
+plt.savefig(fig4a_svg, bbox_inches="tight")
+plt.show()
+
+print("✅ Figure 4a saved:")
+print(fig4a_png)
+print(fig4a_pdf)
+print(fig4a_svg)
+
+
+# ------------------------------------------------------------
+# 4. Figure 4b difference heatmap
+# log2((Reddit + 1) / (PubMed + 1))
+# ------------------------------------------------------------
+
+plt.figure(figsize=(10, 6))
+
+max_abs = np.nanmax(np.abs(diff_log2.values))
+
+# Labels show Reddit/PubMed raw counts for meaningful cells only
+annot_labels = pd.DataFrame(
+    "",
+    index=diff_log2.index,
+    columns=diff_log2.columns
+)
+
+for s in diff_log2.index:
+    for a in diff_log2.columns:
+        r = int(red_mat.loc[s, a])
+        p = int(pub_mat.loc[s, a])
+        v = float(diff_log2.loc[s, a])
+
+        # Keep labels only for visible or meaningful contrasts
+        if (r + p >= 10) or (abs(v) >= 2):
+            annot_labels.loc[s, a] = f"{r}/{p}"
+
+sns.heatmap(
+    diff_log2,
+    cmap="RdBu_r",
+    center=0,
+    vmin=-max_abs,
+    vmax=max_abs,
+    linewidths=0.5,
+    annot=annot_labels,
+    fmt="",
+    cbar_kws={"label": "log2((Reddit + 1) / (PubMed + 1))"}
+)
+
+plt.title(
+    "Figure 4b. Reddit-enriched vs PubMed-enriched Symptom–Anatomy Associations",
+    fontsize=14,
+    pad=15
+)
+
+plt.xlabel("Anatomical terms", fontsize=12)
+plt.ylabel("Symptom terms", fontsize=12)
+plt.tight_layout()
+
+fig4b_png = f"{FIG4_FINAL_DIR}/Figure4b_difference_heatmap_log2_Reddit_over_PubMed.png"
+fig4b_pdf = f"{FIG4_FINAL_DIR}/Figure4b_difference_heatmap_log2_Reddit_over_PubMed.pdf"
+fig4b_svg = f"{FIG4_FINAL_DIR}/Figure4b_difference_heatmap_log2_Reddit_over_PubMed.svg"
+
+plt.savefig(fig4b_png, dpi=300, bbox_inches="tight")
+plt.savefig(fig4b_pdf, bbox_inches="tight")
+plt.savefig(fig4b_svg, bbox_inches="tight")
+plt.show()
+
+print("✅ Figure 4b saved:")
+print(fig4b_png)
+print(fig4b_pdf)
+print(fig4b_svg)
+
+
+# ------------------------------------------------------------
+# 5. Optional combined Figure 4 panel
+# ------------------------------------------------------------
+
+fig, axes = plt.subplots(1, 2, figsize=(22, 6))
+
+sns.heatmap(
+    pub_mat,
+    ax=axes[0],
+    cmap="YlOrRd",
+    linewidths=0.5,
+    annot=True,
+    fmt=".0f",
+    cbar_kws={"label": "Co-occurrence frequency"}
+)
+
+axes[0].set_title(
+    "Figure 4a. PubMed clinical literature",
+    fontsize=14,
+    fontweight="bold"
+)
+axes[0].set_xlabel("Anatomical terms", fontsize=12)
+axes[0].set_ylabel("Symptom terms", fontsize=12)
+axes[0].tick_params(axis="x", rotation=45)
+
+sns.heatmap(
+    diff_log2,
+    ax=axes[1],
+    cmap="RdBu_r",
+    center=0,
+    vmin=-max_abs,
+    vmax=max_abs,
+    linewidths=0.5,
+    annot=annot_labels,
+    fmt="",
+    cbar_kws={"label": "log2((Reddit + 1) / (PubMed + 1))"}
+)
+
+axes[1].set_title(
+    "Figure 4b. Difference: Reddit vs PubMed",
+    fontsize=14,
+    fontweight="bold"
+)
+axes[1].set_xlabel("Anatomical terms", fontsize=12)
+axes[1].set_ylabel("Symptom terms", fontsize=12)
+axes[1].tick_params(axis="x", rotation=45)
+
+fig.suptitle(
+    "Figure 4. External validation of symptom–anatomy associations using PubMed clinical literature",
+    fontsize=16,
+    fontweight="bold",
+    y=1.05
+)
+
+plt.tight_layout()
+
+combined_png = f"{FIG4_FINAL_DIR}/Figure4_combined_PubMed_and_difference_heatmap_Fig3style.png"
+combined_pdf = f"{FIG4_FINAL_DIR}/Figure4_combined_PubMed_and_difference_heatmap_Fig3style.pdf"
+combined_svg = f"{FIG4_FINAL_DIR}/Figure4_combined_PubMed_and_difference_heatmap_Fig3style.svg"
+
+plt.savefig(combined_png, dpi=300, bbox_inches="tight")
+plt.savefig(combined_pdf, bbox_inches="tight")
+plt.savefig(combined_svg, bbox_inches="tight")
+plt.show()
+
+print("✅ Combined Figure 4 saved:")
+print(combined_png)
+print(combined_pdf)
+print(combined_svg)
+
+
+# ------------------------------------------------------------
+# 6. Export contrast pairs for Results/Table 3 support
+# ------------------------------------------------------------
+
+contrast_rows = []
+
+for s in symptoms_fig4:
+    for a in anatomy_fig4:
+        red_count = int(red_mat.loc[s, a])
+        pub_count = int(pub_mat.loc[s, a])
+        log2_ratio = float(diff_log2.loc[s, a])
+
+        contrast_rows.append({
+            "Symptom": s,
+            "Anatomy": a,
+            "Reddit count": red_count,
+            "PubMed count": pub_count,
+            "log2 Reddit/PubMed ratio": log2_ratio,
+            "Reddit - PubMed": red_count - pub_count
+        })
+
+contrast_pairs = pd.DataFrame(contrast_rows)
+
+contrast_pairs.to_csv(
+    f"{FIG4_FINAL_DIR}/Figure4_symptom_anatomy_difference_pairs_all.csv",
+    index=False
+)
+
+reddit_enriched = contrast_pairs.sort_values(
+    ["log2 Reddit/PubMed ratio", "Reddit count"],
+    ascending=[False, False]
+)
+
+pubmed_enriched = contrast_pairs.sort_values(
+    ["log2 Reddit/PubMed ratio", "PubMed count"],
+    ascending=[True, False]
+)
+
+reddit_enriched.to_csv(
+    f"{FIG4_FINAL_DIR}/Figure4_top_Reddit_enriched_pairs.csv",
+    index=False
+)
+
+pubmed_enriched.to_csv(
+    f"{FIG4_FINAL_DIR}/Figure4_top_PubMed_enriched_pairs.csv",
+    index=False
+)
+
+print("=== Top Reddit-enriched pairs ===")
+display(reddit_enriched.head(25))
+
+print("=== Top PubMed-enriched pairs ===")
+display(pubmed_enriched.head(25))
+```
